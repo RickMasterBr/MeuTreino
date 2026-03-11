@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
-import { collection, getDocs, addDoc, doc, getDoc, updateDoc, arrayUnion, arrayRemove, query, orderBy, where, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, doc, getDoc, updateDoc, arrayUnion, arrayRemove, query, orderBy, where, deleteDoc, setDoc } from 'firebase/firestore';
 import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth, provider } from './firebase'; // Importando o que acabamos de criar
 import './App.css';
@@ -10,18 +10,44 @@ function Feed() {
   const [feed, setFeed] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const navigate = useNavigate();
+  const [abaAtual, setAbaAtual] = useState('global'); // 'global' ou 'seguindo'
 
   useEffect(() => {
     const carregarFeed = async () => {
+      setCarregando(true);
       try {
-        // Busca TODOS os treinos da coleção, sem filtrar por usuário
-        const q = query(collection(db, 'workouts'), orderBy('data', 'desc'));
-        const snapshot = await getDocs(q);
+        let treinosSnap;
 
-        const treinosComVolume = snapshot.docs.map(doc => {
+        if (abaAtual === 'global') {
+          // Traz tudo ordenado por data
+          const q = query(collection(db, 'workouts'), orderBy('data', 'desc'));
+          treinosSnap = await getDocs(q);
+        } else {
+          // Lógica da aba "Seguindo"
+          const user = auth.currentUser;
+          if (!user) return;
+
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          let listaSeguindo = userDoc.exists() ? userDoc.data().seguindo || [] : [];
+          
+          // Adiciona o seu próprio ID para ver os seus treinos também
+          listaSeguindo.push(user.uid);
+
+          // O Firebase aceita no máximo 30 IDs num 'in'. Cortamos por segurança no MVP.
+          const idsParaBuscar = listaSeguindo.slice(0, 30);
+
+          if (idsParaBuscar.length > 0) {
+            const q = query(collection(db, 'workouts'), where('userId', 'in', idsParaBuscar));
+            treinosSnap = await getDocs(q);
+          } else {
+            treinosSnap = { docs: [] }; // Se não segue ninguém, array vazio
+          }
+        }
+
+        const treinosComVolume = treinosSnap.docs.map(doc => {
+          // ... (MANTENHA AQUI O CÁLCULO DE VOLUME E RETORNO EXATAMENTE COMO VOCÊ JÁ TINHA) ...
           const dados = doc.data();
           let volumeTreino = 0;
-          
           if (dados.exerciciosRealizados) {
             dados.exerciciosRealizados.forEach(ex => {
               if (ex.series) {
@@ -33,9 +59,11 @@ function Feed() {
               }
             });
           }
-          
           return { id: doc.id, ...dados, volume: volumeTreino };
         });
+
+        // Ordenamos via JavaScript para evitar ter que configurar Índices Compostos no Firebase para o MVP
+        treinosComVolume.sort((a, b) => b.data.seconds - a.data.seconds);
 
         setFeed(treinosComVolume);
       } catch (erro) {
@@ -46,7 +74,7 @@ function Feed() {
     };
 
     carregarFeed();
-  }, []);
+  }, [abaAtual]); // Recarrega o feed quando a aba mudar
 
   const alternarLike = async (treinoId, likesAtuais) => {
     const user = auth.currentUser;
@@ -144,6 +172,22 @@ function Feed() {
     <div>
       <h1 className="page-title">Feed da Comunidade</h1>
 
+      {/* Abas de Navegação do Feed */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginBottom: '30px', borderBottom: '1px solid #2c2c2e', paddingBottom: '10px' }}>
+        <button 
+          onClick={() => setAbaAtual('global')}
+          style={{ background: 'none', border: 'none', color: abaAtual === 'global' ? 'white' : '#8e8e93', fontWeight: abaAtual === 'global' ? 'bold' : 'normal', fontSize: '16px', cursor: 'pointer' }}
+        >
+          Global
+        </button>
+        <button 
+          onClick={() => setAbaAtual('seguindo')}
+          style={{ background: 'none', border: 'none', color: abaAtual === 'seguindo' ? 'white' : '#8e8e93', fontWeight: abaAtual === 'seguindo' ? 'bold' : 'normal', fontSize: '16px', cursor: 'pointer' }}
+        >
+          A Seguir
+        </button>
+      </div>
+
       <div className="routines-list" style={{ maxWidth: '600px', margin: '0 auto' }}>
         {carregando ? (
           <p style={{ color: 'white', textAlign: 'center' }}>Carregando treinos...</p>
@@ -180,6 +224,18 @@ function Feed() {
                   Volume total: <strong style={{ color: 'white' }}>{treino.volume} kg</strong>
                 </p>
               </div>
+
+              {/* --- TROFÉU DE RECORDES PESSOAIS --- */}
+              {treino.recordesQuebrados && treino.recordesQuebrados.length > 0 && (
+                <div style={{ backgroundColor: '#ffd70015', border: '1px solid #ffd70040', padding: '10px 15px', borderRadius: '8px', marginBottom: '15px' }}>
+                  <p style={{ color: '#ffd700', margin: 0, fontSize: '14px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>🏆</span> Novo Recorde Pessoal (PR)
+                  </p>
+                  <p style={{ color: '#e0e0e0', margin: '5px 0 0 0', fontSize: '13px' }}>
+                    {treino.recordesQuebrados.join(', ')}
+                  </p>
+                </div>
+              )}
 
               {/* Lista Resumida de Exercícios */}
               <div style={{ backgroundColor: '#121212', padding: '15px', borderRadius: '8px' }}>
@@ -640,6 +696,56 @@ function UserProfile() {
   const [carregando, setCarregando] = useState(true);
   const [estatisticas, setEstatisticas] = useState({ totalTreinos: 0, volumeTotal: 0 });
   const [dadosAmigo, setDadosAmigo] = useState({ nome: 'Atleta', foto: '' });
+  const [seguindo, setSeguindo] = useState(false);
+
+  // Verifica se o utilizador logado já segue este perfil
+  useEffect(() => {
+    const verificarFollow = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        
+        if (userSnap.exists()) {
+          const listaSeguindo = userSnap.data().seguindo || [];
+          setSeguindo(listaSeguindo.includes(id)); // 'id' é o ID do amigo da URL
+        }
+      } catch (erro) {
+        console.error("Erro ao verificar follow:", erro);
+      }
+    };
+    verificarFollow();
+  }, [id]);
+
+  const alternarFollow = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      alert("Inicie sessão para seguir utilizadores.");
+      return;
+    }
+
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      
+      if (seguindo) {
+        // Deixar de seguir
+        await updateDoc(userRef, {
+          seguindo: arrayRemove(id)
+        });
+        setSeguindo(false);
+      } else {
+        // Seguir (cria o documento se não existir)
+        await setDoc(userRef, {
+          seguindo: arrayUnion(id)
+        }, { merge: true });
+        setSeguindo(true);
+      }
+    } catch (erro) {
+      console.error("Erro ao seguir:", erro);
+    }
+  };
 
   useEffect(() => {
     const carregarPerfilAmigo = async () => {
@@ -710,6 +816,30 @@ function UserProfile() {
           <h1 className="page-title" style={{ margin: 0 }}>{dadosAmigo.nome}</h1>
           <p style={{ color: '#8e8e93', margin: 0 }}>Atleta da Comunidade</p>
         </div>
+
+        <div>
+          <h1 className="page-title" style={{ margin: 0 }}>{dadosAmigo.nome}</h1>
+          <p style={{ color: '#8e8e93', margin: 0, marginBottom: '10px' }}>Atleta da Comunidade</p>
+          
+          {/* Esconde o botão se estiver a ver o seu próprio perfil pelo link de outro */}
+          {auth.currentUser && auth.currentUser.uid !== id && (
+            <button 
+              onClick={alternarFollow}
+              style={{ 
+                backgroundColor: seguindo ? 'transparent' : '#1a73e8', 
+                color: seguindo ? '#8e8e93' : 'white', 
+                border: seguindo ? '1px solid #8e8e93' : 'none', 
+                padding: '8px 20px', 
+                borderRadius: '20px', 
+                fontWeight: 'bold', 
+                cursor: 'pointer' 
+              }}
+            >
+              {seguindo ? 'A Seguir' : 'Seguir'}
+            </button>
+          )}
+        </div>
+
       </div>
 
       <div style={{ backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '12px', marginBottom: '30px', display: 'flex', gap: '40px' }}>
@@ -1005,7 +1135,15 @@ function ActiveWorkout() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [treinoAtivo, setTreinoAtivo] = useState(null);
-  const [tempo, setTempo] = useState(0); // Simulando um cronômetro simples
+  const [tempo, setTempo] = useState(0); // Simulando um cronômetro 
+  
+  // Estado para rastrear a suplementação e otimização do treino
+  const [combustivel, setCombustivel] = useState({
+    preTreino: '',
+    posTreino: '',
+    nivelEnergia: 3, // Escala de 1 a 5
+    qualidadeSono: 3 // Escala de 1 a 5
+  });
 
   // 1. Carrega a rotina para servir de base para o treino
   useEffect(() => {
@@ -1048,20 +1186,58 @@ function ActiveWorkout() {
     try {
       const user = auth.currentUser;
       const workoutsRef = collection(db, 'workouts');
+      
+      // --- INÍCIO DO ALGORITMO DE RECORDES (PR) ---
+      const novosRecordes = []; // Array para guardar os nomes dos exercícios com novo PR
 
+      for (const ex of treinoAtivo.exerciciosDetalhados) {
+        let maxPesoNesteTreino = 0;
+
+        // Acha a série mais pesada deste exercício no treino atual
+        if (ex.series) {
+          ex.series.forEach(serie => {
+            if (serie.concluida && Number(serie.peso) > maxPesoNesteTreino) {
+              maxPesoNesteTreino = Number(serie.peso);
+            }
+          });
+        }
+
+        // Se levantou algum peso, vamos comparar com o banco de dados
+        if (maxPesoNesteTreino > 0) {
+          // Criamos um ID único juntando o seu ID com o ID do Exercício (ex: "uid123_supino")
+          const prRef = doc(db, 'personal_records', `${user.uid}_${ex.id}`);
+          const prSnap = await getDoc(prRef);
+
+          // Se o recorde não existe ainda, OU se o peso de hoje é maior que o antigo: Bateu PR!
+          if (!prSnap.exists() || prSnap.data().pesoMaximo < maxPesoNesteTreino) {
+            
+            await setDoc(prRef, {
+              pesoMaximo: maxPesoNesteTreino,
+              data: new Date()
+            });
+
+            novosRecordes.push(ex.nome); // Guarda o nome para mostrar no Feed
+          }
+        }
+      }
+      // --- FIM DO ALGORITMO ---
+
+      // Salva o registro final no Firebase
       await addDoc(workoutsRef, {
         userId: user.uid,
-        userName: user.displayName || 'Atleta Anônimo', // <-- NOVO: Salva o nome
-        userPhoto: user.photoURL || '',                 // <-- NOVO: Salva a foto do Google
+        userName: user.displayName || 'Atleta Anônimo',
+        userPhoto: user.photoURL || '',
         rotinaOrigemId: id,
         nome: treinoAtivo.nome,
         data: new Date(),
         exerciciosRealizados: treinoAtivo.exerciciosDetalhados,
-        duracaoSegundos: tempo
+        duracaoSegundos: tempo,
+        otimizacao: combustivel,
+        recordesQuebrados: novosRecordes // <-- NOVO: Salvando a lista de recordes quebrados!
       });
 
-      alert("Treino finalizado e salvo no histórico! 💪");
-      navigate('/'); // Vamos mandar o usuário pro Feed (/) ao invés do Profile agora
+      alert("Treino finalizado! 💪");
+      navigate('/'); 
     } catch (erro) {
       console.error("Erro ao salvar o treino:", erro);
       alert("Erro ao finalizar o treino.");
@@ -1146,7 +1322,70 @@ function ActiveWorkout() {
             ))}
           </div>
         ))}
+
+        
+
       </div>
+
+      {/* --- MÓDULO DE OTIMIZAÇÃO (COMBUSTÍVEL) --- */}
+      <div style={{ backgroundColor: '#121212', padding: '20px', borderRadius: '12px', marginTop: '30px', border: '1px solid #2c2c2e' }}>
+        <h3 style={{ margin: '0 0 15px 0', color: '#1a73e8' }}>⚡ Otimização de Performance</h3>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          
+          {/* Inputs de Suplementação */}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '12px', color: '#8e8e93', display: 'block', marginBottom: '5px' }}>Pré-Treino (Fórmula/Dose)</label>
+              <input 
+                type="text" 
+                placeholder="Ex: Fórmula Custom 10g"
+                value={combustivel.preTreino}
+                onChange={(e) => setCombustivel({...combustivel, preTreino: e.target.value})}
+                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: '#2c2c2e', color: 'white', boxSizing: 'border-box' }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '12px', color: '#8e8e93', display: 'block', marginBottom: '5px' }}>Pós-Treino (Fórmula/Dose)</label>
+              <input 
+                type="text" 
+                placeholder="Ex: Whey + Creatina"
+                value={combustivel.posTreino}
+                onChange={(e) => setCombustivel({...combustivel, posTreino: e.target.value})}
+                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', backgroundColor: '#2c2c2e', color: 'white', boxSizing: 'border-box' }}
+              />
+            </div>
+          </div>
+
+          {/* Sliders de Energia e Sono */}
+          <div style={{ display: 'flex', gap: '20px', marginTop: '10px' }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '12px', color: '#8e8e93', display: 'block', marginBottom: '5px' }}>
+                Nível de Energia: <strong style={{color: 'white'}}>{combustivel.nivelEnergia}/5</strong>
+              </label>
+              <input 
+                type="range" min="1" max="5" 
+                value={combustivel.nivelEnergia}
+                onChange={(e) => setCombustivel({...combustivel, nivelEnergia: Number(e.target.value)})}
+                style={{ width: '100%', accentColor: '#1a73e8' }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '12px', color: '#8e8e93', display: 'block', marginBottom: '5px' }}>
+                Qualidade do Sono: <strong style={{color: 'white'}}>{combustivel.qualidadeSono}/5</strong>
+              </label>
+              <input 
+                type="range" min="1" max="5" 
+                value={combustivel.qualidadeSono}
+                onChange={(e) => setCombustivel({...combustivel, qualidadeSono: Number(e.target.value)})}
+                style={{ width: '100%', accentColor: '#1a73e8' }}
+              />
+            </div>
+          </div>
+
+        </div>
+      </div>
+      
     </div>
   );
 }
