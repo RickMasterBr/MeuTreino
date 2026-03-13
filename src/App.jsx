@@ -168,6 +168,31 @@ function Feed() {
     }
   };
 
+  // Função para deletar um treino do histórico
+  const deletarTreino = async (treinoId, donoDoTreinoId) => {
+    const user = auth.currentUser;
+    
+    // Verificação de segurança dupla (Frontend)
+    if (!user || user.uid !== donoDoTreinoId) {
+      alert("Você não tem permissão para excluir este treino.");
+      return;
+    }
+
+    if (!window.confirm("Atenção: Tem certeza que deseja excluir este treino do seu histórico? Esta ação não pode ser desfeita.")) return;
+
+    try {
+      // Deleta o documento do Firebase
+      await deleteDoc(doc(db, 'workouts', treinoId));
+
+      // Atualiza o estado local para remover o treino da tela instantaneamente
+      setFeed(feedAnterior => feedAnterior.filter(treino => treino.id !== treinoId));
+
+    } catch (erro) {
+      console.error("Erro ao deletar treino:", erro);
+      alert("Ocorreu um erro ao tentar excluir.");
+    }
+  };
+
   return (
     <div>
       <h1 className="page-title">Feed da Comunidade</h1>
@@ -197,24 +222,49 @@ function Feed() {
           feed.map(treino => (
             <div key={treino.id} style={{ backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '12px', marginBottom: '20px' }}>
               
-              {/* Cabeçalho do Post Clicável (Quem fez e quando) */}
-              <div 
-                onClick={() => navigate(`/user/${treino.userId}`)}
-                style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px', cursor: 'pointer', padding: '5px', borderRadius: '8px', transition: 'background-color 0.2s' }}
-                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2c2c2e'}
-                onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-              >
-                {treino.userPhoto ? (
-                  <img src={treino.userPhoto} alt="Perfil" style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
-                ) : (
-                  <div style={{ width: '40px', height: '40px', backgroundColor: '#333', borderRadius: '50%' }}></div>
-                )}
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '16px' }}>{treino.userName || 'Usuário Desconhecido'}</h4>
-                  <span style={{ color: '#8e8e93', fontSize: '12px' }}>
-                    {treino.data ? new Date(treino.data.seconds * 1000).toLocaleString() : ''}
-                  </span>
+              {/* Cabeçalho do Post (Quem fez e quando + Botão Excluir) */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+                
+                {/* Lado Esquerdo: Foto e Nome (Clicável) */}
+                <div 
+                  onClick={() => navigate(`/user/${treino.userId}`)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '15px', cursor: 'pointer', padding: '5px', borderRadius: '8px', transition: 'background-color 0.2s' }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2c2c2e'}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  {treino.userPhoto ? (
+                    <img src={treino.userPhoto} alt="Perfil" style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
+                  ) : (
+                    <div style={{ width: '40px', height: '40px', backgroundColor: '#333', borderRadius: '50%' }}></div>
+                  )}
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '16px', color: 'white' }}>{treino.userName || 'Usuário Desconhecido'}</h4>
+                    <span style={{ color: '#8e8e93', fontSize: '12px' }}>
+                      {treino.data ? new Date(treino.data.seconds * 1000).toLocaleString() : ''}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Lado Direito: Botões Editar e Deletar (Visíveis APENAS para o dono) */}
+                {auth.currentUser && auth.currentUser.uid === treino.userId && (
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button 
+                      onClick={() => navigate(`/workout/edit/${treino.id}`)}
+                      style={{ background: 'none', border: 'none', color: '#1a73e8', cursor: 'pointer', fontSize: '18px', padding: '5px' }}
+                      title="Editar treino"
+                    >
+                      ✏️
+                    </button>
+                    <button 
+                      onClick={() => deletarTreino(treino.id, treino.userId)}
+                      style={{ background: 'none', border: 'none', color: '#ff4d4d', cursor: 'pointer', fontSize: '18px', padding: '5px' }}
+                      title="Excluir treino"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                )}
+
               </div>
 
               {/* Título do Treino e Volume */}
@@ -458,6 +508,10 @@ function Exercises() {
   const [listaExercicios, setListaExercicios] = useState([]);
   const [novoExercicio, setNovoExercicio] = useState('');
   const [carregando, setCarregando] = useState(true);
+  
+  // Estados da nova funcionalidade de categorias
+  const [novaCategoria, setNovaCategoria] = useState('Peito');
+  const categoriasPossiveis = ['Peito', 'Costas', 'Pernas', 'Braços', 'Ombros', 'Core', 'Cardio'];
 
   // 1. Busca os exercícios do usuário no Firebase
   const carregarExercicios = async () => {
@@ -467,12 +521,12 @@ function Exercises() {
 
       const q = query(collection(db, 'exercises'), where('userId', '==', user.uid));
       const snapshot = await getDocs(q);
-
+      
       const exercicios = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-
+      
       setListaExercicios(exercicios);
     } catch (erro) {
       console.error("Erro ao carregar exercícios:", erro);
@@ -494,9 +548,10 @@ function Exercises() {
       await addDoc(collection(db, 'exercises'), {
         userId: user.uid,
         nome: novoExercicio,
+        categoria: novaCategoria, // Adiciona a categoria escolhida
         dataCriacao: new Date()
       });
-
+      
       setNovoExercicio(''); // Limpa o input
       carregarExercicios(); // Recarrega a lista
     } catch (erro) {
@@ -504,10 +559,9 @@ function Exercises() {
     }
   };
 
+  // 3. Exclui o exercício
   const excluirExercicio = async (id) => {
-    // Confirmação nativa do navegador para evitar exclusão acidental
     if (!window.confirm("Tem certeza que deseja excluir este exercício?")) return;
-
     try {
       await deleteDoc(doc(db, 'exercises', id));
       carregarExercicios(); // Recarrega a lista após excluir
@@ -520,19 +574,31 @@ function Exercises() {
   return (
     <div>
       <h1 className="page-title">Exercises</h1>
-
+      
       {/* Formulário para adicionar novo exercício */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '30px' }}>
-        <input
-          type="text"
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '30px', flexWrap: 'wrap' }}>
+        <input 
+          type="text" 
           value={novoExercicio}
           onChange={(e) => setNovoExercicio(e.target.value)}
           placeholder="Ex: Supino Inclinado (Halter)"
-          style={{ flex: 1, padding: '15px', borderRadius: '8px', border: 'none', backgroundColor: '#1c1c1e', color: 'white', fontSize: '16px' }}
+          style={{ flex: 2, minWidth: '200px', padding: '15px', borderRadius: '8px', border: 'none', backgroundColor: '#1c1c1e', color: 'white', fontSize: '16px' }}
         />
-        <button
+        
+        {/* Menu Dropdown de Categoria */}
+        <select 
+          value={novaCategoria} 
+          onChange={(e) => setNovaCategoria(e.target.value)}
+          style={{ flex: 1, minWidth: '120px', padding: '15px', borderRadius: '8px', border: 'none', backgroundColor: '#2c2c2e', color: 'white', fontSize: '16px', outline: 'none' }}
+        >
+          {categoriasPossiveis.map(cat => (
+            <option key={cat} value={cat}>{cat}</option>
+          ))}
+        </select>
+
+        <button 
           onClick={criarExercicio}
-          style={{ backgroundColor: '#1a73e8', color: 'white', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+          style={{ backgroundColor: '#1a73e8', color: 'white', border: 'none', padding: '0 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', height: '50px' }}
         >
           Adicionar
         </button>
@@ -546,9 +612,15 @@ function Exercises() {
           <p style={{ color: 'gray' }}>Nenhum exercício cadastrado. Crie o primeiro!</p>
         ) : (
           listaExercicios.map(ex => (
-            <div key={ex.id} style={{ backgroundColor: '#1c1c1e', padding: '15px 20px', borderRadius: '8px', marginBottom: '10px' }}>
-              <span style={{ fontSize: '16px', color: 'white' }}>{ex.nome}</span>
-              <button
+            <div key={ex.id} style={{ backgroundColor: '#1c1c1e', padding: '15px 20px', borderRadius: '8px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontSize: '16px', color: 'white', display: 'block' }}>{ex.nome}</span>
+                {/* Mostra a categoria como uma etiqueta pequenina */}
+                <span style={{ fontSize: '12px', color: '#8e8e93', backgroundColor: '#2c2c2e', padding: '2px 8px', borderRadius: '4px', marginTop: '5px', display: 'inline-block' }}>
+                  {ex.categoria || 'Sem Categoria'}
+                </span>
+              </div>
+              <button 
                 onClick={() => excluirExercicio(ex.id)}
                 style={{ background: 'none', border: 'none', color: '#ff4d4d', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
               >
@@ -565,7 +637,8 @@ function Exercises() {
 function Profile() {
   const [historico, setHistorico] = useState([]);
   const [carregando, setCarregando] = useState(true);
-  const [estatisticas, setEstatisticas] = useState({ totalTreinos: 0, volumeTotal: 0 });
+  // Adicionamos 'treinos30Dias' ao estado inicial
+  const [estatisticas, setEstatisticas] = useState({ totalTreinos: 0, volumeTotal: 0, treinos30Dias: 0 });
 
   useEffect(() => {
     const carregarHistorico = async () => {
@@ -573,15 +646,20 @@ function Profile() {
         const user = auth.currentUser;
         if (!user) return;
 
-        // Busca apenas os treinos deste usuário
         const q = query(collection(db, 'workouts'), where('userId', '==', user.uid));
         const snapshot = await getDocs(q);
 
         let volumeCalc = 0;
+        let treinosRecentes = 0;
+        
+        // Descobre qual era a data de exatamente 30 dias atrás
+        const trintaDiasAtras = new Date();
+        trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
+
         const treinosRealizados = snapshot.docs.map(doc => {
           const dados = doc.data();
           let volumeTreino = 0;
-
+          
           if (dados.exerciciosRealizados) {
             dados.exerciciosRealizados.forEach(ex => {
               if (ex.series) {
@@ -593,19 +671,30 @@ function Profile() {
               }
             });
           }
-
+          
           volumeCalc += volumeTreino;
+
+          // --- LÓGICA DE CONSISTÊNCIA ---
+          // Converte o timestamp do Firebase para uma Data do JavaScript
+          if (dados.data) {
+            const dataDoTreino = new Date(dados.data.seconds * 1000);
+            if (dataDoTreino >= trintaDiasAtras) {
+              treinosRecentes++; // Se foi nos últimos 30 dias, soma 1
+            }
+          }
 
           return { id: doc.id, ...dados, volume: volumeTreino };
         });
 
-        // Ordena do mais recente para o mais antigo usando JavaScript
         treinosRealizados.sort((a, b) => b.data.seconds - a.data.seconds);
 
         setHistorico(treinosRealizados);
+        
+        // Atualiza o estado com a nova variável
         setEstatisticas({
           totalTreinos: treinosRealizados.length,
-          volumeTotal: volumeCalc
+          volumeTotal: volumeCalc,
+          treinos30Dias: treinosRecentes
         });
 
       } catch (erro) {
@@ -623,16 +712,19 @@ function Profile() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '30px' }}>
-        {/* Foto de perfil genérica redonda */}
-        <div style={{ width: '80px', height: '80px', backgroundColor: '#333', borderRadius: '50%' }}></div>
+        {auth.currentUser?.photoURL ? (
+          <img src={auth.currentUser.photoURL} alt="Perfil" style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover' }} />
+        ) : (
+          <div style={{ width: '80px', height: '80px', backgroundColor: '#333', borderRadius: '50%' }}></div>
+        )}
         <div>
-          <h1 className="page-title" style={{ margin: 0 }}>Meu Perfil</h1>
+          <h1 className="page-title" style={{ margin: 0 }}>{auth.currentUser?.displayName || 'Meu Perfil'}</h1>
           <p style={{ color: '#8e8e93', margin: 0 }}>Atleta</p>
         </div>
       </div>
 
-      {/* Estatísticas (Workouts e Volume) */}
-      <div style={{ backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '12px', marginBottom: '30px', display: 'flex', gap: '40px' }}>
+      {/* Estatísticas (Workouts, Volume E Consistência) */}
+      <div style={{ backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '12px', marginBottom: '30px', display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
         <div>
           <p style={{ color: '#8e8e93', fontSize: '14px', marginBottom: '5px' }}>Workouts</p>
           <h2 style={{ margin: 0 }}>{estatisticas.totalTreinos}</h2>
@@ -641,22 +733,24 @@ function Profile() {
           <p style={{ color: '#8e8e93', fontSize: '14px', marginBottom: '5px' }}>Volume Total</p>
           <h2 style={{ margin: 0 }}>{estatisticas.volumeTotal} kg</h2>
         </div>
+        {/* NOVO BLOCO DE ESTATÍSTICA */}
+        <div>
+          <p style={{ color: '#8e8e93', fontSize: '14px', marginBottom: '5px' }}>Últimos 30 dias</p>
+          <h2 style={{ margin: 0, color: '#1a73e8' }}>{estatisticas.treinos30Dias} treinos</h2>
+        </div>
       </div>
 
       <h3 style={{ marginBottom: '20px' }}>Latest Activity</h3>
 
-      {/* Lista de treinos finalizados */}
       <div className="routines-list">
         {historico.length === 0 ? (
           <p style={{ color: 'gray' }}>Você ainda não finalizou nenhum treino.</p>
         ) : (
           historico.map(treino => (
             <div key={treino.id} style={{ backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '12px', marginBottom: '15px' }}>
-
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
                 <h3 style={{ margin: 0 }}>{treino.nome}</h3>
                 <span style={{ color: '#8e8e93', fontSize: '14px' }}>
-                  {/* Converte a data do Firebase para uma data legível */}
                   {treino.data ? new Date(treino.data.seconds * 1000).toLocaleDateString() : ''}
                 </span>
               </div>
@@ -665,14 +759,10 @@ function Profile() {
                 Volume: <strong style={{ color: 'white' }}>{treino.volume} kg</strong>
               </p>
 
-              {/* Lista resumida dos exercícios feitos no treino */}
               <div>
                 {treino.exerciciosRealizados && treino.exerciciosRealizados.map((ex, idx) => {
                   const seriesFeitas = ex.series ? ex.series.filter(s => s.concluida).length : 0;
-
-                  // Se não completou nenhuma série desse exercício, nem mostra no resumo
-                  if (seriesFeitas === 0) return null;
-
+                  if (seriesFeitas === 0) return null; 
                   return (
                     <p key={idx} style={{ color: 'white', fontSize: '14px', margin: '5px 0' }}>
                       <span style={{ color: '#1a73e8', fontWeight: 'bold' }}>{seriesFeitas} sets</span> {ex.nome}
@@ -680,7 +770,6 @@ function Profile() {
                   );
                 })}
               </div>
-
             </div>
           ))
         )}
@@ -882,6 +971,8 @@ function RoutineDetail() {
   const [rotina, setRotina] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [mostrandoCatalogo, setMostrandoCatalogo] = useState(false);
+  const [filtroCategoria, setFiltroCategoria] = useState('Todas');
+  const categoriasFiltro = ['Todas', 'Peito', 'Costas', 'Pernas', 'Braços', 'Ombros', 'Core', 'Cardio'];
 
   const [catalogoFirebase, setCatalogoFirebase] = useState([]);
 
@@ -917,13 +1008,18 @@ function RoutineDetail() {
 
       const exercicios = snapshot.docs.map(doc => ({
         id: doc.id,
-        nome: doc.data().nome
+        nome: doc.data().nome,
+        categoria: doc.data().categoria || 'Sem Categoria' // Garante retrocompatibilidade
       }));
 
       setCatalogoFirebase(exercicios);
     };
     buscarCatalogo();
   }, []);
+
+  const catalogoFiltrado = filtroCategoria === 'Todas' 
+    ? catalogoFirebase 
+    : catalogoFirebase.filter(ex => ex.categoria === filtroCategoria);
 
   // Função para adicionar um exercício à rotina
   const adicionarExercicio = (exercicio) => {
@@ -1107,21 +1203,49 @@ function RoutineDetail() {
           </button>
 
           {mostrandoCatalogo && (
-            <div style={{ backgroundColor: '#1c1c1e', borderRadius: '12px', padding: '10px' }}>
-              <p style={{ color: 'gray', fontSize: '12px', padding: '5px 10px' }}>Escolha um exercício:</p>
-              {catalogoFirebase.length === 0 ? (
-                <p style={{ color: 'gray', padding: '10px' }}>Vá na aba "Exercises" e cadastre seus exercícios primeiro.</p>
-              ) : (
-                catalogoFirebase.map(ex => (
-                  <div
-                    key={ex.id}
-                    onClick={() => adicionarExercicio(ex)}
-                    style={{ padding: '15px 10px', borderBottom: '1px solid #2c2c2e', cursor: 'pointer', color: 'white' }}
+            <div style={{ backgroundColor: '#1c1c1e', borderRadius: '12px', padding: '15px', marginTop: '10px' }}>
+              <p style={{ color: 'gray', fontSize: '12px', padding: '0 5px', margin: '0 0 10px 0' }}>Filtre por grupo muscular:</p>
+              
+              {/* --- BOTÕES DE FILTRO --- */}
+              <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '10px', borderBottom: '1px solid #2c2c2e' }}>
+                {categoriasFiltro.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setFiltroCategoria(cat)}
+                    style={{
+                      backgroundColor: filtroCategoria === cat ? '#1a73e8' : '#2c2c2e',
+                      color: filtroCategoria === cat ? 'white' : '#8e8e93',
+                      border: 'none',
+                      padding: '6px 12px',
+                      borderRadius: '15px',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
                   >
-                    {ex.nome}
-                  </div>
-                ))
-              )}
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* --- LISTA FILTRADA --- */}
+              <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                {catalogoFiltrado.length === 0 ? (
+                  <p style={{ color: 'gray', padding: '10px', fontSize: '14px' }}>Nenhum exercício nesta categoria.</p>
+                ) : (
+                  // Atenção: Aqui usamos catalogoFiltrado.map em vez de catalogoFirebase.map
+                  catalogoFiltrado.map(ex => (
+                    <div 
+                      key={ex.id}
+                      onClick={() => adicionarExercicio(ex)}
+                      style={{ padding: '12px 5px', borderBottom: '1px solid #2c2c2e', cursor: 'pointer', color: 'white', display: 'flex', justifyContent: 'space-between' }}
+                    >
+                      <span>{ex.nome}</span>
+                      <span style={{ fontSize: '12px', color: '#8e8e93' }}>{ex.categoria}</span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1245,10 +1369,17 @@ function ActiveWorkout() {
   };
 
   const removerSerie = (exIndex, serieIndex) => {
-    const novaRotina = { ...rotina };
-    // Acede ao exercício específico e remove 1 elemento a partir da posição serieIndex
-    novaRotina.exerciciosDetalhados[exIndex].series.splice(serieIndex, 1);
-    setRotina(novaRotina);
+    const novoTreino = { ...treinoAtivo };
+    // Remove 1 série na posição 'serieIndex'
+    novoTreino.exerciciosDetalhados[exIndex].series.splice(serieIndex, 1);
+    setTreinoAtivo(novoTreino);
+  };
+
+  const adicionarSerie = (exIndex) => {
+    const novoTreino = { ...treinoAtivo };
+    // Adiciona uma nova série vazia e já com o status concluida: false
+    novoTreino.exerciciosDetalhados[exIndex].series.push({ peso: '', reps: '', concluida: false });
+    setTreinoAtivo(novoTreino);
   };
 
   if (!treinoAtivo) return <p style={{ color: 'white', padding: '20px' }}>Preparando os pesos...</p>;
@@ -1278,48 +1409,58 @@ function ActiveWorkout() {
               <span style={{ width: '40px', textAlign: 'center' }}>✓</span>
             </div>
 
-            {ex.series.map((serie, serieIndex) => (
-              <div key={serieIndex} style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px',
-                backgroundColor: serie.concluida ? '#2e4c30' : '#2c2c2e', // Fica verde escuro se concluído
-                padding: '10px', borderRadius: '8px',
-                transition: 'background-color 0.3s'
+            {ex.series && ex.series.map((serie, serieIndex) => (
+              <div key={serieIndex} style={{ 
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', 
+                backgroundColor: serie.concluida ? '#2e4c30' : '#2c2c2e', 
+                padding: '10px', borderRadius: '8px'
               }}>
-                <span style={{ width: '30px', fontWeight: 'bold' }}>{serieIndex + 1}</span>
-
-                <input
-                  type="number"
+                <span style={{ width: '30px', fontWeight: 'bold', color: 'white' }}>{serieIndex + 1}</span>
+                
+                <input 
+                  type="number" 
                   value={serie.peso}
                   onChange={(e) => atualizarValorReal(exIndex, serieIndex, 'peso', e.target.value)}
-                  style={{ width: '60px', backgroundColor: 'rgba(0,0,0,0.2)', border: 'none', color: 'white', textAlign: 'center', fontSize: '16px', borderRadius: '4px', padding: '5px' }}
+                  style={{ width: '60px', backgroundColor: 'rgba(0,0,0,0.2)', border: 'none', color: 'white', textAlign: 'center', fontSize: '16px', borderRadius: '4px', padding: '5px' }} 
                 />
-
-                <input
-                  type="number"
+                
+                <input 
+                  type="number" 
                   value={serie.reps}
                   onChange={(e) => atualizarValorReal(exIndex, serieIndex, 'reps', e.target.value)}
-                  style={{ width: '60px', backgroundColor: 'rgba(0,0,0,0.2)', border: 'none', color: 'white', textAlign: 'center', fontSize: '16px', borderRadius: '4px', padding: '5px' }}
+                  style={{ width: '60px', backgroundColor: 'rgba(0,0,0,0.2)', border: 'none', color: 'white', textAlign: 'center', fontSize: '16px', borderRadius: '4px', padding: '5px' }} 
                 />
+                
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  {/* Botão de Concluir (✓) */}
+                  <button 
+                    onClick={() => alternarConclusao(exIndex, serieIndex)}
+                    style={{ 
+                      width: '40px', height: '30px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontWeight: 'bold',
+                      backgroundColor: serie.concluida ? '#4CAF50' : '#4a4a4c',
+                      color: 'white'
+                    }}
+                  >
+                    {serie.concluida ? '✓' : ''}
+                  </button>
 
-                <button
-                  onClick={() => alternarConclusao(exIndex, serieIndex)}
-                  style={{
-                    width: '40px', height: '30px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontWeight: 'bold',
-                    backgroundColor: serie.concluida ? '#4CAF50' : '#4a4a4c',
-                    color: 'white'
-                  }}
-                >
-                  {serie.concluida ? '✓' : ''}
-                </button>
-                {/* NOVO BOTÃO DE REMOVER NO TREINO ATIVO */}
-                <button
-                  onClick={() => removerSerie(exIndex, serieIndex)}
-                  style={{ background: 'none', border: 'none', color: '#ff4d4d', fontWeight: 'bold', cursor: 'pointer', marginLeft: '10px' }}
-                >
-                  X
-                </button>
+                  {/* NOVO: Botão de Remover Série (X) */}
+                  <button 
+                    onClick={() => removerSerie(exIndex, serieIndex)}
+                    style={{ background: 'none', border: 'none', color: '#ff4d4d', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
+                    title="Remover série"
+                  >
+                    X
+                  </button>
+                </div>
               </div>
             ))}
+            <button 
+              onClick={() => adicionarSerie(exIndex)}
+              style={{ marginTop: '15px', width: '100%', padding: '10px', backgroundColor: 'transparent', color: '#1a73e8', border: '1px solid #1a73e8', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              + Add Set
+            </button>
           </div>
         ))}
 
@@ -1386,6 +1527,182 @@ function ActiveWorkout() {
         </div>
       </div>
       
+    </div>
+  );
+}
+
+function EditWorkout() {
+  const { workoutId } = useParams(); // Pega o ID do treino finalizado na URL
+  const navigate = useNavigate();
+  const [treinoEditavel, setTreinoEditavel] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+
+  // 1. Carrega os dados históricos deste treino
+  useEffect(() => {
+    const carregarTreinoAntigo = async () => {
+      try {
+        const docRef = doc(db, 'workouts', workoutId);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          // Segurança: Só o dono pode editar
+          if (docSnap.data().userId !== auth.currentUser?.uid) {
+            alert("Não tem permissão para editar este treino.");
+            navigate('/');
+            return;
+          }
+          setTreinoEditavel(docSnap.data());
+        } else {
+          alert("Treino não encontrado.");
+          navigate('/');
+        }
+      } catch (erro) {
+        console.error("Erro ao carregar treino para edição:", erro);
+      } finally {
+        setCarregando(false);
+      }
+    };
+    carregarTreinoAntigo();
+  }, [workoutId, navigate]);
+
+  // 2. Funções de atualização local (idênticas ao ActiveWorkout)
+  const atualizarValorReal = (exIndex, serieIndex, campo, valor) => {
+    const novoTreino = { ...treinoEditavel };
+    novoTreino.exerciciosRealizados[exIndex].series[serieIndex][campo] = valor;
+    setTreinoEditavel(novoTreino);
+  };
+
+  const alternarConclusao = (exIndex, serieIndex) => {
+    const novoTreino = { ...treinoEditavel };
+    const serie = novoTreino.exerciciosRealizados[exIndex].series[serieIndex];
+    serie.concluida = !serie.concluida;
+    setTreinoEditavel(novoTreino);
+  };
+
+  const alterarNomeTreino = (novoNome) => {
+    setTreinoEditavel({ ...treinoEditavel, nome: novoNome });
+  };
+
+  const adicionarSerie = (exIndex) => {
+    const novoTreino = { ...treinoEditavel };
+    novoTreino.exerciciosRealizados[exIndex].series.push({ peso: '', reps: '', concluida: false });
+    setTreinoEditavel(novoTreino);
+  };
+
+  const removerSerie = (exIndex, serieIndex) => {
+    const novoTreino = { ...treinoEditavel };
+    novoTreino.exerciciosRealizados[exIndex].series.splice(serieIndex, 1);
+    setTreinoEditavel(novoTreino);
+  };
+
+  // 3. Salvar as alterações na base de dados
+  const salvarEdicao = async () => {
+    try {
+      const docRef = doc(db, 'workouts', workoutId);
+      
+      // Atualiza apenas os campos que podem ter sido modificados
+      await updateDoc(docRef, {
+        nome: treinoEditavel.nome,
+        exerciciosRealizados: treinoEditavel.exerciciosRealizados
+      });
+
+      alert("Alterações guardadas com sucesso!");
+      navigate(-1); // Volta para o ecrã anterior (Feed ou Perfil)
+    } catch (erro) {
+      console.error("Erro ao guardar edição:", erro);
+      alert("Erro ao guardar as alterações.");
+    }
+  };
+
+  if (carregando) return <p style={{ color: 'white', padding: '20px' }}>A carregar dados do treino...</p>;
+  if (!treinoEditavel) return null;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ flex: 1, marginRight: '20px' }}>
+          <p style={{ color: '#8e8e93', margin: 0 }}>A editar histórico</p>
+          <input 
+            type="text" 
+            value={treinoEditavel.nome}
+            onChange={(e) => alterarNomeTreino(e.target.value)}
+            style={{ 
+              fontSize: '24px', fontWeight: 'bold', backgroundColor: 'transparent', color: '#1a73e8', 
+              border: 'none', borderBottom: '1px dashed #333', outline: 'none', width: '100%', padding: '5px 0' 
+            }}
+          />
+        </div>
+        
+        <button onClick={salvarEdicao} style={{ backgroundColor: '#4CAF50', color: 'white', border: 'none', padding: '15px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
+          Guardar Alterações
+        </button>
+      </div>
+
+      <div className="routines-list">
+        {treinoEditavel.exerciciosRealizados && treinoEditavel.exerciciosRealizados.map((ex, exIndex) => (
+          <div key={exIndex} style={{ backgroundColor: '#1c1c1e', padding: '20px', borderRadius: '12px', marginBottom: '15px' }}>
+            <h3 style={{ fontSize: '18px', marginBottom: '15px', color: 'white' }}>{ex.nome}</h3>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#8e8e93', fontSize: '12px', marginBottom: '10px', padding: '0 10px' }}>
+              <span style={{ width: '30px' }}>SET</span>
+              <span style={{ width: '60px', textAlign: 'center' }}>KG</span>
+              <span style={{ width: '60px', textAlign: 'center' }}>REPS</span>
+              <span style={{ width: '40px', textAlign: 'center' }}>✓</span>
+            </div>
+
+            {ex.series && ex.series.map((serie, serieIndex) => (
+              <div key={serieIndex} style={{ 
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', 
+                backgroundColor: serie.concluida ? '#2e4c30' : '#2c2c2e', 
+                padding: '10px', borderRadius: '8px'
+              }}>
+                <span style={{ width: '30px', fontWeight: 'bold', color: 'white' }}>{serieIndex + 1}</span>
+                
+                <input 
+                  type="number" 
+                  value={serie.peso}
+                  onChange={(e) => atualizarValorReal(exIndex, serieIndex, 'peso', e.target.value)}
+                  style={{ width: '60px', backgroundColor: 'rgba(0,0,0,0.2)', border: 'none', color: 'white', textAlign: 'center', fontSize: '16px', borderRadius: '4px', padding: '5px' }} 
+                />
+                
+                <input 
+                  type="number" 
+                  value={serie.reps}
+                  onChange={(e) => atualizarValorReal(exIndex, serieIndex, 'reps', e.target.value)}
+                  style={{ width: '60px', backgroundColor: 'rgba(0,0,0,0.2)', border: 'none', color: 'white', textAlign: 'center', fontSize: '16px', borderRadius: '4px', padding: '5px' }} 
+                />
+                
+                <button 
+                  onClick={() => alternarConclusao(exIndex, serieIndex)}
+                  style={{ 
+                    width: '40px', height: '30px', borderRadius: '4px', border: 'none', cursor: 'pointer', fontWeight: 'bold',
+                    backgroundColor: serie.concluida ? '#4CAF50' : '#4a4a4c',
+                    color: 'white'
+                  }}
+                >
+                  {serie.concluida ? '✓' : ''}
+                </button>
+
+                {/* Botão de Remover Série */}
+                <button 
+                  onClick={() => removerSerie(exIndex, serieIndex)}
+                  style={{ background: 'none', border: 'none', color: '#ff4d4d', fontWeight: 'bold', cursor: 'pointer', marginLeft: '10px' }}
+                >
+                  X
+                </button>
+              </div>
+            ))}
+
+            {/* Botão de Adicionar Série */}
+            <button 
+              onClick={() => adicionarSerie(exIndex)}
+              style={{ marginTop: '15px', width: '100%', padding: '10px', backgroundColor: 'transparent', color: '#1a73e8', border: '1px solid #1a73e8', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              + Add Set
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1472,6 +1789,7 @@ function App() {
             <Route path="/routines" element={<Routines />} />
             <Route path="/routines/:id" element={<RoutineDetail />} />
             <Route path="/workout/:id" element={<ActiveWorkout />} />
+            <Route path="/workout/edit/:workoutId" element={<EditWorkout />} />
             <Route path="/exercises" element={<Exercises />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/user/:id" element={<UserProfile />} />
