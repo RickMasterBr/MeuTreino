@@ -1,68 +1,88 @@
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+/* 1. Fonte Moderna e Reset Global */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+* {
+  box-sizing: border-box;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  margin: 0;
+  padding: 0;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+html, body {
+  min-height: 100vh; /* Garante que ocupa pelo menos 100% da altura da tela */
+  margin: 0;
 }
 
 body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  background: radial-gradient(circle at top left, #1a1a24 0%, #000000 100%);
+  background-attachment: fixed; /* Fixa o gradiente para não subir com o scroll */
+  background-size: cover; /* FORÇA o fundo a cobrir todos os buracos */
+  background-repeat: no-repeat; /* Impede que o fundo tente se duplicar/quebrar */
+  
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: 80px;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+/* 2. Scrollbar Personalizada (Dark Mode) */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+::-webkit-scrollbar-thumb {
+  background: #333333;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
+/* 3. Efeitos Globais para Inputs e Botões */
+input:focus, select:focus {
+  outline: 2px solid #1a73e8 !important; /* Brilho azul ao clicar num input */
+  outline-offset: -2px;
+  transition: all 0.2s ease;
 }
 
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  transition: transform 0.1s ease, background-color 0.2s ease;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+button:active {
+  transform: scale(0.95); /* Efeito de "afundar" o botão ao clicar */
+}
+
+/* 4. Animação de Entrada (Fade In) para as Telas */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.routines-list > div, .page-title {
+  animation: fadeIn 0.4s ease forwards;
+}
+
+/* 5. Títulos com gradiente (Estilo Pro) */
+.page-title {
+  font-size: 32px;
+  font-weight: 900;
+  margin-bottom: 25px;
+  background: linear-gradient(90deg, #ffffff, #8e8e93);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -1px;
+}
+
+/* Efeito de interatividade nos cartões de treino/exercício */
+.routines-list > div {
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 0.3s ease, border 0.3s ease;
+  border: 1px solid transparent; /* Prepara a borda invisível */
+}
+
+.routines-list > div:hover {
+  transform: translateY(-4px); /* Levanta o cartão 4 pixels */
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.6); /* Cria uma sombra escura de profundidade */
+  border: 1px solid #333333; /* Acende uma bordinha sutil */
 }
